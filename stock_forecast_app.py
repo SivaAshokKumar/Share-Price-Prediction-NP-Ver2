@@ -6,35 +6,36 @@ from neuralprophet import NeuralProphet, set_random_seed
 import plotly.graph_objects as go
 from sklearn.metrics import r2_score, mean_squared_error
 
-# Set seed
+# Set random seed
 set_random_seed(42)
 
-# Sidebar Input
+# Sidebar Inputs
 st.sidebar.title("🛠️ Stock Forecasting Controls")
 ticker = st.sidebar.text_input("Enter Stock Ticker (e.g., INFY.NS, TCS.NS)", value="INFY.NS")
 start_date = st.sidebar.date_input("Start Date", pd.to_datetime("2018-01-01"))
 end_date = st.sidebar.date_input("End Date", pd.to_datetime("2023-10-01"))
-predict_button = st.sidebar.button("🔍 Predict")
+predict_button = st.sidebar.button("📊 Predict Stock")
 
-# Main Header
-st.title("📈 NeuralProphet Stock Forecasting")
+# App Title
+st.title(f"📈 NeuralProphet Forecasting App for '{ticker.upper()}'")
 
+# Function to load data
+@st.cache_data
+def load_data(ticker, start, end):
+    df = yf.download(ticker, start=start, end=end)
+    df = df[['Close']].reset_index()
+    df.columns = ['ds', 'y']
+    return df
+
+# Main prediction flow
 if predict_button:
-    # Load data
-    @st.cache_data
-    def load_data(ticker, start, end):
-        df = yf.download(ticker, start=start, end=end)
-        df = df[['Close']].reset_index()
-        df.columns = ['ds', 'y']
-        return df
-
     data = load_data(ticker, start_date, end_date)
 
     if data.empty:
-        st.warning("⚠️ No data found for this ticker in the given date range.")
+        st.warning("⚠️ No data found for this ticker in the selected date range.")
         st.stop()
 
-    # Display data
+    # Display sample data
     st.subheader("📊 Sample Stock Data")
     st.dataframe(data.tail())
 
@@ -43,7 +44,7 @@ if predict_button:
     train_df = data.iloc[:train_size]
     test_df = data.iloc[train_size:]
 
-    # Model Configuration
+    # Configure NeuralProphet Model
     model = NeuralProphet(
         n_lags=60,
         n_forecasts=30,
@@ -52,15 +53,15 @@ if predict_button:
         daily_seasonality=False,
     )
 
-    # Train
-    with st.spinner("Training NeuralProphet model..."):
+    # Train Model
+    with st.spinner("🔄 Training NeuralProphet model..."):
         model.fit(train_df, freq="D")
 
-    # Rolling Forecast with Test Data
+    # Predict on Test Set
     st.subheader("🔁 Rolling Forecast (Multiple Origins)")
-    metrics, forecast_df = model.test(test_df, return_forecasts=True)
+    forecast_df = model.predict(test_df)
 
-    # Visualization
+    # Plot actual vs forecast
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=test_df['ds'], y=test_df['y'], mode='markers', name='Actual', marker=dict(color='black', size=4)))
 
@@ -69,16 +70,17 @@ if predict_button:
             fig.add_trace(go.Scatter(x=forecast_df['ds'], y=forecast_df[col], mode='lines', name=col, opacity=0.3, line=dict(width=1)))
 
     fig.update_layout(
-        title=f"NeuralProphet Rolling Forecast - {ticker.upper()}",
+        title=f"Rolling Forecast - {ticker.upper()}",
         xaxis_title="Date",
         yaxis_title="Price",
         height=600
     )
     st.plotly_chart(fig)
 
-    # Evaluation
+    # Evaluation Metrics
     st.subheader("📈 Model Evaluation")
     merged = test_df.merge(forecast_df[['ds', 'yhat1']], on='ds', how='inner').dropna()
+
     r2 = r2_score(merged['y'], merged['yhat1'])
     rmse = np.sqrt(mean_squared_error(merged['y'], merged['yhat1']))
     mape = np.mean(np.abs((merged['y'] - merged['yhat1']) / merged['y'])) * 100
@@ -102,5 +104,6 @@ if predict_button:
         yaxis_title='Price'
     )
     st.plotly_chart(fig_future)
+
 else:
-    st.info("👈 Enter the stock ticker and date range, then click 'Predict' to start.")
+    st.info("👈 Enter details on the sidebar and click **Predict Stock** to begin.")
