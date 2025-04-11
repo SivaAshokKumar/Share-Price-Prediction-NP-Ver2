@@ -6,20 +6,19 @@ from neuralprophet import NeuralProphet, set_random_seed
 import plotly.graph_objects as go
 from sklearn.metrics import r2_score, mean_squared_error
 
-# Set random seed
+# Set seed
 set_random_seed(42)
 
-# Sidebar Inputs
+# Sidebar Input
 st.sidebar.title("🛠️ Stock Forecasting Controls")
 ticker = st.sidebar.text_input("Enter Stock Ticker (e.g., INFY.NS, TCS.NS)", value="INFY.NS")
 start_date = st.sidebar.date_input("Start Date", pd.to_datetime("2018-01-01"))
 end_date = st.sidebar.date_input("End Date", pd.to_datetime("2023-10-01"))
-predict_button = st.sidebar.button("📊 Predict Stock")
 
-# App Title
-st.title(f"📈 NeuralProphet Forecasting App for '{ticker.upper()}'")
+# Main Header
+st.title(f"📈 Neural Prophet Visualization of the Share '{ticker.upper()}'")
 
-# Function to load data
+# Load data
 @st.cache_data
 def load_data(ticker, start, end):
     df = yf.download(ticker, start=start, end=end)
@@ -27,83 +26,77 @@ def load_data(ticker, start, end):
     df.columns = ['ds', 'y']
     return df
 
-# Main prediction flow
-if predict_button:
-    data = load_data(ticker, start_date, end_date)
+data = load_data(ticker, start_date, end_date)
 
-    if data.empty:
-        st.warning("⚠️ No data found for this ticker in the selected date range.")
-        st.stop()
+if data.empty:
+    st.warning("⚠️ No data found for this ticker in the given date range.")
+    st.stop()
 
-    # Display sample data
-    st.subheader("📊 Sample Stock Data")
-    st.dataframe(data.tail())
+# Display data
+st.subheader("📊 Sample Stock Data")
+st.dataframe(data.tail())
 
-    # Train-Test Split
-    train_size = int(len(data) * 0.8)
-    train_df = data.iloc[:train_size]
-    test_df = data.iloc[train_size:]
+# Train-Test Split
+train_size = int(len(data) * 0.8)
+train_df = data.iloc[:train_size]
+test_df = data.iloc[train_size:]
 
-    # Configure NeuralProphet Model
-    model = NeuralProphet(
-        n_lags=60,
-        n_forecasts=30,
-        yearly_seasonality=True,
-        weekly_seasonality=True,
-        daily_seasonality=False,
-    )
+# Model Configuration
+model = NeuralProphet(
+    n_lags=60,
+    n_forecasts=30,
+    yearly_seasonality=True,
+    weekly_seasonality=True,
+    daily_seasonality=False,
+)
 
-    # Train Model
-    with st.spinner("🔄 Training NeuralProphet model..."):
-        model.fit(train_df, freq="D")
+# Train
+with st.spinner("Training NeuralProphet model..."):
+    model.fit(train_df, freq="D")
 
-    # Predict on Test Set
-    st.subheader("🔁 Rolling Forecast (Multiple Origins)")
-    forecast_df = model.predict(test_df)
+# Rolling Forecast with Test Data
+st.subheader("🔁 Rolling Forecast (Multiple Origins)")
+metrics, forecast_df = model.test(test_df, return_forecasts=True)
 
-    # Plot actual vs forecast
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=test_df['ds'], y=test_df['y'], mode='markers', name='Actual', marker=dict(color='black', size=4)))
+# Visualization
+fig = go.Figure()
 
-    for col in forecast_df.columns:
-        if col.startswith('yhat'):
-            fig.add_trace(go.Scatter(x=forecast_df['ds'], y=forecast_df[col], mode='lines', name=col, opacity=0.3, line=dict(width=1)))
+# Actual values
+fig.add_trace(go.Scatter(x=test_df['ds'], y=test_df['y'], mode='markers', name='Actual', marker=dict(color='black', size=4)))
 
-    fig.update_layout(
-        title=f"Rolling Forecast - {ticker.upper()}",
-        xaxis_title="Date",
-        yaxis_title="Price",
-        height=600
-    )
-    st.plotly_chart(fig)
+# Forecasts: yhat1 to yhat30
+for col in forecast_df.columns:
+    if col.startswith('yhat'):
+        fig.add_trace(go.Scatter(x=forecast_df['ds'], y=forecast_df[col], mode='lines', name=col, opacity=0.3, line=dict(width=1)))
 
-    # Evaluation Metrics
-    st.subheader("📈 Model Evaluation")
-    merged = test_df.merge(forecast_df[['ds', 'yhat1']], on='ds', how='inner').dropna()
+fig.update_layout(
+    title=f"Neural Prophet Rolling Forecast - {ticker.upper()}",
+    xaxis_title="Date",
+    yaxis_title="Price",
+    height=600
+)
+st.plotly_chart(fig)
 
-    r2 = r2_score(merged['y'], merged['yhat1'])
-    rmse = np.sqrt(mean_squared_error(merged['y'], merged['yhat1']))
-    mape = np.mean(np.abs((merged['y'] - merged['yhat1']) / merged['y'])) * 100
+# Evaluation
+st.subheader("📈 Model Evaluation")
 
-    st.markdown(f"**R² Score**: `{r2:.4f}`")
-    st.markdown(f"**RMSE**: `{rmse:.2f}`")
-    st.markdown(f"**MAPE**: `{mape:.2f}%`")
+merged = test_df.merge(forecast_df[['ds', 'yhat1']], on='ds', how='inner').dropna()
+r2 = r2_score(merged['y'], merged['yhat1'])
+rmse = np.sqrt(mean_squared_error(merged['y'], merged['yhat1']))
+mape = np.mean(np.abs((merged['y'] - merged['yhat1']) / merged['y'])) * 100
 
-    # Future Forecast
-    st.subheader("🔮 Forecast Next 30 Days")
-    future_df = model.make_future_dataframe(data, periods=30)
-    forecast_future = model.predict(future_df)
+st.markdown(f"**R² Score**: `{r2:.4f}`")
+st.markdown(f"**RMSE**: `{rmse:.2f}`")
+st.markdown(f"**MAPE**: `{mape:.2f}%`")
 
-    fig_future = go.Figure()
-    fig_future.add_trace(go.Scatter(x=data['ds'], y=data['y'], mode='lines+markers', name='Historical'))
-    fig_future.add_trace(go.Scatter(x=forecast_future['ds'], y=forecast_future['yhat1'], mode='lines', name='Forecast'))
+# Future Forecast
+st.subheader("🔮 Forecast Next 30 Days")
+future_df = model.make_future_dataframe(data, periods=30)
+forecast_future = model.predict(future_df)
 
-    fig_future.update_layout(
-        title=f"{ticker.upper()} - 30 Day Future Forecast",
-        xaxis_title='Date',
-        yaxis_title='Price'
-    )
-    st.plotly_chart(fig_future)
+fig_future = go.Figure()
+fig_future.add_trace(go.Scatter(x=data['ds'], y=data['y'], mode='lines+markers', name='Historical'))
+fig_future.add_trace(go.Scatter(x=forecast_future['ds'], y=forecast_future['yhat1'], mode='lines', name='Forecast'))
 
-else:
-    st.info("👈 Enter details on the sidebar and click **Predict Stock** to begin.")
+fig_future.update_layout(title=f"{ticker.upper()} - 30 Day Future Forecast", xaxis_title='Date', yaxis_title='Price')
+st.plotly_chart(fig_future)
